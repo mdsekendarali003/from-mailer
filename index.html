@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Send professional itemized invoices effortlessly with FormSubmit.co. Features auto-calculations, customizable line items, and sent logs in a minimal glass interface.">
+    <meta name="keywords"
+        content="FormSubmit, invoice generator, email invoice, invoice sender, billing, contact form, web application">
+    <meta name="author" content="Antigravity">
+    <title>MailStream — FormSubmit Invoice Dispatcher</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+    <!-- PDF generation for the invoice attachment. html2canvas + jsPDF are used
+         directly rather than the html2pdf bundle: html2pdf copies the source into
+         its own viewport-sized container, which clipped the off-screen invoice
+         template down to zero height and produced blank PDFs. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="./index.css">
+</head>
+
+<body class="dark-mode gated">
+    <!-- ===== ACCESS GATE (shown to anyone opening the page directly) ===== -->
+    <div id="access-gate" class="access-gate" role="dialog" aria-modal="true" aria-labelledby="gate-title">
+        <div class="gate-card">
+            <h2 id="gate-title" class="gate-title">Please contact customer service</h2>
+            <p class="gate-text">
+                This portal is available to verified partners only. To get access,
+                contact our customer service team or visit our store.
+            </p>
+
+            <a href="tel:+18053026685" class="gate-phone">
+                <span class="gate-phone-label">Customer Service</span>
+                <span class="gate-phone-number">+1 (805) 302-6685</span>
+            </a>
+
+            <a href="https://nextstepsearchgroup.com" class="btn-primary gate-store-btn">
+                Go to Store
+            </a>
+
+        </div>
+        <!-- Small link at the screen corner to reveal the access-code entry -->
+        <button type="button" id="gate-continue-link" class="gate-continue-link">Continue &rsaquo;</button>
+
+        <!-- Access-code modal, opened by the Continue link -->
+        <div id="gate-pin-modal" class="gate-pin-modal" hidden>
+            <div class="gate-pin-modal-card">
+                <button type="button" id="gate-pin-close" class="gate-pin-close" aria-label="Close">&times;</button>
+                <h3 class="gate-pin-title">Enter access code</h3>
+                <p class="gate-pin-sub">Enter your 4-digit code to continue.</p>
+                <form id="gate-pin-form">
+                    <div class="gate-pin-row">
+                        <input id="gate-pin-input" class="gate-pin-input" type="text" inputmode="numeric" maxlength="4"
+                            autocomplete="off" placeholder="••••" />
+                        <button type="submit" class="btn-primary gate-pin-submit">Unlock</button>
+                    </div>
+                    <div id="gate-pin-error" class="gate-pin-error" aria-live="polite"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ambient background glow elements -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+
+    <!-- App Header -->
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand-section">
+                <img src="https://mailmeteor.com/logos/assets/PNG/Gmail_Logo_512px.png" alt="MailStream Logo"
+                    class="brand-logo-img">
+                <div class="brand-info">
+                    <h1 class="brand-title">MailStream</h1>
+                    <span class="brand-tag">FormSubmit Invoice Dispatcher</span>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <button type="button" class="status-chip" id="btn-edit-router" title="Change the main FormSubmit email">
+                    <span class="status-dot"></span>
+                    <span class="status-text text-mono text-xs" id="router-email-label">mdsekendarali6@gmail.com</span>
+                </button>
+
+                <button id="btn-guide" class="btn-ghost" title="FormSubmit CC Guide">
+                    <span>How CC Works</span>
+                </button>
+                <button id="btn-history-toggle" class="btn-ghost" title="View Sent Log">
+                    <span>Sent Log</span>
+                    <span id="history-badge" class="badge">0</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container: Full Width Zero-Scroll Executive Dashboard -->
+    <main class="main-content">
+        <div class="panel composer-panel">
+
+            <!-- Full-Width 2-Column Form Body -->
+            <form id="email-form" class="email-form" novalidate>
+                <!-- Hidden FormSubmit Fields -->
+                <input type="hidden" name="_captcha" id="fs-captcha" value="false">
+                <input type="hidden" name="_template" id="fs-template" value="table">
+                <input type="hidden" name="_honey" id="fs-honey" style="display:none">
+
+                <!-- ==================== INVOICE MODE: FULL-WIDTH HORIZONTAL GRID ==================== -->
+                <div id="invoice-mode-fields" class="invoice-fullwidth-grid">
+
+                    <!-- LEFT COLUMN: Metadata, Parties & Payment Details -->
+                    <div class="grid-col-left">
+
+                        <!-- 1. Invoice Meta Row -->
+                        <div class="form-row-2">
+                            <div class="form-group">
+                                <label for="inv-number" class="form-label text-xs">Invoice Number</label>
+                                <input type="text" id="inv-number" class="form-input text-mono text-sm"
+                                    value="INV-2026-001" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="inv-currency" class="form-label text-xs">Currency</label>
+                                <select id="inv-currency" class="custom-select form-input text-sm">
+                                    <option value="USD|$" selected>USD ($)</option>
+                                    <option value="EUR|€">EUR (€)</option>
+                                    <option value="GBP|£">GBP (£)</option>
+                                    <option value="INR|₹">INR (₹)</option>
+                                    <option value="CAD|$">CAD ($)</option>
+                                    <option value="AUD|$">AUD ($)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 2. Billing Information (Client vs Provider) -->
+                        <div class="billing-grid">
+                            <!-- Billed To (Client / CC) -->
+                            <div class="billing-column">
+                                <div class="billing-tag client-tag"
+                                    style="display: flex; align-items: center; justify-content: space-between;">
+                                    <span>Bill To (Client &bull; CC) <span class="required-star">*</span></span>
+                                    <button type="button" id="btn-open-batch-modal" class="btn-ghost"
+                                        style="padding: 0.2rem 0.65rem; font-size: 0.72rem; color: var(--blue-light); background: rgba(59, 130, 246, 0.16); border-radius: var(--radius-pill);"
+                                        title="Send invoice to multiple client emails one by one in CC">
+                                        + Multiple Emails
+                                    </button>
+                                </div>
+                                <div class="form-group">
+                                    <input type="text" id="client-name" class="form-input"
+                                        placeholder="Client Name / Company" required>
+                                    <div class="field-error" id="client-name-error"></div>
+                                </div>
+                                <div class="form-group">
+                                    <div class="input-wrap">
+                                        <input type="text" id="recipient-email" class="form-input text-mono text-sm"
+                                            placeholder="client@example.com (Delivered via CC)" required>
+                                        <button type="button" id="btn-save-default-recipient" class="input-action-btn"
+                                            title="Bookmark client email">
+                                            &plus;
+                                        </button>
+                                    </div>
+                                    <div class="field-error" id="recipient-email-error"></div>
+                                </div>
+                                <div class="form-group">
+                                    <input type="text" id="client-address" class="form-input text-xs"
+                                        placeholder="Billing Address / City, Country">
+                                </div>
+                            </div>
+
+                            <!-- Billed From (Provider) -->
+                            <div class="billing-column">
+                                <div class="billing-tag provider-tag">
+                                    Bill From (Provider)
+                                    <span class="required-star">*</span>
+                                </div>
+                                <div class="form-group">
+                                    <input type="text" id="sender-name" class="form-input"
+                                        placeholder="Your Name or Studio" value="Apex Digital Studio" required>
+                                    <div class="field-error" id="sender-name-error"></div>
+                                </div>
+                                <div class="form-group">
+                                    <input type="email" id="sender-email" class="form-input text-mono text-sm"
+                                        placeholder="billing@apexdigital.com (Reply-To)" value="billing@apexdigital.com"
+                                        required>
+                                    <div class="field-error" id="sender-email-error"></div>
+                                </div>
+                                <div class="form-group">
+                                    <input type="text" id="sender-address" class="form-input text-xs"
+                                        placeholder="Your Address / Tax ID" value="742 Evergreen Terrace, Suite 100">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Invoice Subject Line -->
+                        <div class="form-group">
+                            <div class="group-header">
+                                <label for="email-subject" class="form-label text-xs">
+                                    Invoice Subject Line
+                                    <span class="required-star">*</span>
+                                </label>
+                                <span class="char-count" id="subject-count">0/100</span>
+                            </div>
+                            <input type="text" id="email-subject" name="_subject" class="form-input"
+                                value="Invoice #INV-2026-001 from Apex Digital Studio" maxlength="100" required>
+                            <div class="field-error" id="email-subject-error"></div>
+                        </div>
+
+                        <textarea id="inv-notes" style="display: none;"></textarea>
+
+                        <!-- 5. Advanced Accordion -->
+                        <div class="accordion" id="advanced-accordion">
+                            <button type="button" class="accordion-trigger" id="accordion-btn" aria-expanded="false">
+                                <div class="trigger-left">
+                                    <span class="trigger-text">Additional CC, BCC, Attachments</span>
+                                </div>
+                                <span class="chevron-indicator">&dtrif;</span>
+                            </button>
+                            <div class="accordion-content" id="accordion-panel">
+                                <div class="accordion-inner">
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="email-extra-cc" class="form-label text-xs">Additional CC</label>
+                                            <input type="text" id="email-extra-cc" class="form-input text-mono text-xs"
+                                                placeholder="accountant@example.com">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="email-bcc" class="form-label text-xs">BCC</label>
+                                            <input type="text" id="email-bcc" name="_bcc"
+                                                class="form-input text-mono text-xs" placeholder="records@example.com">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <div class="group-header"
+                                                style="display: flex; justify-content: space-between; align-items: center;">
+                                                <label for="file-attachment" class="form-label text-xs">Attachment /
+                                                    Custom File</label>
+                                                <span id="attachment-status-badge" class="badge"
+                                                    style="background: rgba(59, 130, 246, 0.16); color: var(--blue-light); font-size: 0.68rem;">Auto-generates
+                                                    PDF</span>
+                                            </div>
+                                            <div class="file-input-wrapper">
+                                                <input type="file" id="file-attachment" name="attachment"
+                                                    class="file-input" accept="image/*,.pdf">
+                                                <div class="file-custom-btn"
+                                                    style="display: flex; align-items: center; justify-content: space-between;">
+                                                    <span id="file-label-text">Auto-attaching Image 1 PDF (or click to
+                                                        upload image/PDF)</span>
+                                                    <button type="button" id="btn-clear-file"
+                                                        style="display: none; background: none; border: none; color: #ef4444; font-size: 1.15rem; line-height: 1; cursor: pointer; padding: 0 4px;"
+                                                        title="Remove uploaded file and use Auto PDF">&times;</button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="template-style-select" class="form-label text-xs">Layout</label>
+                                            <select id="template-style-select" class="custom-select form-input text-xs">
+                                                <option value="table" selected>Table Layout</option>
+                                                <option value="box">Box Layout</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- RIGHT COLUMN: Itemized Table, Calculation Summary & Action Footer -->
+                    <div class="grid-col-right">
+
+                        <!-- Product Name & Contact Number -->
+                        <div class="form-group">
+                            <label for="product-name" class="form-label text-xs">Product / Service Name</label>
+                            <input type="text" id="product-name" class="form-input text-xs" placeholder="Service"
+                                value="Service">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="contact-number" class="form-label text-xs">Contact Number</label>
+                            <input type="tel" id="contact-number" class="form-input text-xs"
+                                placeholder="+1 234 567 8900">
+                        </div>
+
+                        <!-- Deliverables Header & Add Item -->
+                        <div class="line-items-header" style="display: none;">
+                            <div class="section-heading-label">Itemized Deliverables</div>
+                            <button type="button" id="btn-add-item" class="btn-tiny btn-accent">
+                                &plus; Add Item
+                            </button>
+                        </div>
+
+                        <!-- Dynamic Table with Scrollable Body (hidden — amount is fixed at $499) -->
+                        <div class="items-table-container" style="display: none;">
+                            <table class="items-table">
+                                <thead>
+                                    <tr>
+                                        <th class="th-desc">Description</th>
+                                        <th class="th-qty">Qty</th>
+                                        <th class="th-rate">Unit Price</th>
+                                        <th class="th-total">Total</th>
+                                        <th class="th-action"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="line-items-tbody">
+                                    <!-- Injected by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Financial Calculation Summary Card -->
+                        <div class="calc-summary-card">
+                            <div class="calc-row" style="display: none;">
+                                <span class="calc-label">Subtotal</span>
+                                <span class="calc-val" id="calc-subtotal">$0.00</span>
+                            </div>
+
+                            <div class="calc-row" style="display: none;">
+                                <div class="calc-label-input">
+                                    <span>Tax / VAT (%)</span>
+                                    <input type="number" id="inv-tax-rate" class="form-input text-mono inline-num-input"
+                                        value="0" min="0" max="100" step="0.5">
+                                </div>
+                                <span class="calc-val" id="calc-tax">$0.00</span>
+                            </div>
+
+                            <div class="calc-row" style="display: none;">
+                                <div class="calc-label-input">
+                                    <span>Discount</span>
+                                    <input type="number" id="inv-discount" class="form-input text-mono inline-num-input"
+                                        value="0" min="0" step="10">
+                                </div>
+                                <span class="calc-val text-dim" id="calc-discount">-$0.00</span>
+                            </div>
+
+                            <div class="calc-divider"></div>
+
+                            <div class="calc-row grand-total-row">
+                                <span class="grand-label">Grand Total Due</span>
+                                <span class="grand-val" id="calc-grand-total">$0.00</span>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons Footer -->
+                        <div class="footer-buttons">
+                            <button type="button" id="btn-reset" class="btn-secondary" title="Reset all fields">
+                                <span>Reset</span>
+                            </button>
+                            <button type="button" id="btn-download-pdf" class="btn-secondary"
+                                title="Download High-Resolution Image 1 PDF Invoice">
+                                <span>Download PDF</span>
+                            </button>
+                            <button type="submit" id="btn-submit" class="btn-primary">
+                                <span class="btn-text">
+                                    <span id="btn-submit-label">Send Invoice via FormSubmit</span>
+                                </span>
+                                <span class="btn-loader" style="display: none;">
+                                    <span class="spinner"></span>
+                                    <span id="btn-submit-loader-text">Dispatching...</span>
+                                </span>
+                            </button>
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </form>
+        </div>
+    </main>
+
+    <!-- Sent History Slide-Over Drawer -->
+    <aside id="history-drawer" class="drawer">
+        <div class="drawer-overlay" id="drawer-overlay"></div>
+        <div class="drawer-panel">
+            <div class="drawer-header">
+                <div class="drawer-title-wrap">
+                    <h3>Sent Invoices & Messages</h3>
+                </div>
+                <div class="drawer-actions">
+                    <button id="btn-clear-history" class="btn-tiny btn-danger" title="Clear sent log">
+                        Clear
+                    </button>
+                    <button id="btn-close-drawer" class="btn-close" title="Close">
+                        &times;
+                    </button>
+                </div>
+            </div>
+            <div class="drawer-body">
+                <div id="history-empty" class="empty-state">
+                    <p>No dispatched invoices yet.</p>
+                    <span class="empty-sub">Sent invoices will appear here with timestamps, client details, and
+                        totals.</span>
+                </div>
+                <ul id="history-list" class="history-list"></ul>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Multi-Email Batch Modal -->
+    <div id="batch-modal" class="modal">
+        <div class="modal-backdrop" id="batch-modal-backdrop"></div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title-wrap">
+                    <div>
+                        <h3 class="modal-title">Multiple Client Recipients (CC)</h3>
+                        <p class="modal-subtitle">Configure multiple recipient emails (Invoices are dispatched
+                            individually via CC)
+                        </p>
+                    </div>
+                </div>
+                <button id="btn-close-batch-modal" class="btn-close">
+                    &times;
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <div class="group-header">
+                        <label for="batch-emails-textarea" class="form-label text-xs">
+                            Recipient Email Addresses (Paste multiple emails separated by new lines, commas, or spaces)
+                        </label>
+                        <span id="batch-email-count-badge" class="badge">0 valid emails</span>
+                    </div>
+                    <textarea id="batch-emails-textarea" class="form-textarea" rows="6"
+                        style="padding: 0.9rem; font-family: var(--font-mono); font-size: 0.86rem;"
+                        placeholder="client1@example.com&#10;finance@company.org&#10;accounting@client.io"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer"
+                style="display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" id="btn-cancel-batch" class="btn-secondary">
+                    Cancel
+                </button>
+                <button type="button" id="btn-save-batch" class="btn-primary" disabled>
+                    <span>Save Recipients</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Guide Modal -->
+    <div id="guide-modal" class="modal">
+        <div class="modal-backdrop" id="modal-backdrop"></div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title-wrap">
+                    <div>
+                        <h3 class="modal-title">How FormSubmit CC Routing Works</h3>
+                        <p class="modal-subtitle">Zero client activation required</p>
+                    </div>
+                </div>
+                <button id="btn-close-modal" class="btn-close">
+                    &times;
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="guide-steps">
+                    <div class="step-card">
+                        <div class="step-num">1</div>
+                        <div class="step-content">
+                            <h4>Fixed Main Router (mdsekendarali6@gmail.com)</h4>
+                            <p>The form submits to your verified address (<code>mdsekendarali6@gmail.com</code>). You
+                                only activate
+                                this email once on FormSubmit.</p>
+                        </div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-num">2</div>
+                        <div class="step-content">
+                            <h4>Client Receives Copy via CC</h4>
+                            <p>The client's email address is sent in FormSubmit's <strong><code>_cc</code></strong>
+                                parameter.
+                                FormSubmit automatically delivers the complete invoice to the client <strong>without
+                                    asking them to
+                                    activate anything</strong>!</p>
+                        </div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-num">3</div>
+                        <div class="step-content">
+                            <h4>Full Itemized Invoice Table</h4>
+                            <p>FormSubmit formats all line items, rates, taxes, and totals into an organized table in
+                                both your inbox
+                                and your client's inbox.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="guide-features">
+                    <h4>Included Features</h4>
+                    <ul class="features-list">
+                        <li>&bull; 100% Zero client activation friction</li>
+                        <li>&bull; Pure FormSubmit.co browser dispatch</li>
+                        <li>&bull; Real-time subtotal & tax calculations</li>
+                        <li>&bull; Custom currencies ($, €, £, ₹, etc.)</li>
+                        <li>&bull; PDF attachment uploads</li>
+                        <li>&bull; Additional CC & BCC support</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-got-it" class="btn-primary" style="width: 100%;">
+                    Got it, let's create invoices!
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Main Email Modal -->
+    <div id="router-modal" class="gate-pin-modal" hidden>
+        <div class="gate-pin-modal-card">
+            <button type="button" id="btn-close-router" class="gate-pin-close" aria-label="Close">&times;</button>
+            <h3 class="gate-pin-title">Main Email Address</h3>
+            <p class="gate-pin-sub">Invoices are dispatched through this FormSubmit inbox. It must be activated once
+                before sending.</p>
+            <form id="router-form">
+                <div class="gate-pin-row">
+                    <input id="router-email-input" class="gate-pin-input" type="email"
+                        style="letter-spacing:normal;font-size:15px;text-align:left;" autocomplete="email"
+                        placeholder="you@example.com" />
+                    <button type="submit" class="btn-primary gate-pin-submit">Save</button>
+                </div>
+                <div id="router-error" class="gate-pin-error" aria-live="polite"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Hidden PDF Render Template (Faithfully styled matching Image 1 for html2pdf conversion) -->
+    <div id="invoice-pdf-template"
+        style="position: absolute; top: 0; left: -10000px; width: 794px; min-height: 1120px; background: #ffffff; color: #1e293b; font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 50px 52px; box-sizing: border-box; z-index: 0; pointer-events: none;">
+        <!-- Top Header: Logo (Left) & Company Info (Right) -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 45px;">
+            <!-- Brand Logo (Curved blue ribbon 'J' icon from Image 1) -->
+            <div style="width: 48px; height: 54px;">
+                <svg viewBox="0 0 54 60" fill="none" xmlns="http://www.w3.org/2000/svg"
+                    style="width: 100%; height: 100%;">
+                    <path
+                        d="M14 6H38C41.3137 6 44 8.68629 44 12V34C44 44.4934 35.4934 53 25 53C14.5066 53 6 44.4934 6 34V30H20V34C20 36.7614 22.2386 39 25 39C27.7614 39 30 36.7614 30 34V20H14V6Z"
+                        fill="#0080FF" />
+                </svg>
+            </div>
+            <!-- Company Info (Right) -->
+            <div style="text-align: right; font-size: 11px; line-height: 1.5; color: #64748b;">
+                <div id="pdf-sender-name"
+                    style="font-weight: 700; font-size: 13px; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">
+                    YOUR COMPANY</div>
+                <div id="pdf-sender-address">1331 Hart Ridge Road<br>48436 Gaines, MI</div>
+                <div id="pdf-sender-vat" style="margin-top: 2px;">VAT no.: 987654321</div>
+                <div style="margin-top: 4px; color: #475569;"><span
+                        style="color: #0080FF; font-weight: bold; margin-right: 4px;">@</span><span
+                        id="pdf-sender-email">your.mail@gmail.com</span></div>
+                <div id="pdf-sender-phone-wrap" style="color: #475569;"><span
+                        style="color: #0080FF; font-weight: bold; margin-right: 4px;">Contact us</span><span
+                        id="pdf-sender-phone">+386 989 271 3115</span></div>
+            </div>
+        </div>
+
+        <!-- Middle Row: Recipient (Left) & Invoice Title & Metadata (Right) -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 35px;">
+            <!-- Recipient Block -->
+            <div style="font-size: 11px; line-height: 1.5; color: #64748b; max-width: 340px;">
+                <div
+                    style="font-size: 10px; font-weight: 700; color: #475569; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 6px;">
+                    RECIPIENT</div>
+                <div id="pdf-client-name"
+                    style="font-size: 13px; font-weight: 600; color: #1e293b; text-transform: uppercase; margin-bottom: 2px;">
+                    JOHN SMITH</div>
+                <div id="pdf-client-address">4504 Liberty Avenue<br>92680 Tustin, CA</div>
+                <div style="margin-top: 4px; color: #475569;"><span
+                        style="color: #0080FF; font-weight: bold; margin-right: 4px;">@</span><span
+                        id="pdf-client-email">company.mail@gmail.com</span></div>
+            </div>
+
+            <!-- Title & Metadata Block -->
+            <div style="text-align: right;">
+                <div style="font-size: 34px; font-weight: 700; color: #1e293b; line-height: 1; margin-bottom: 20px;">
+                    Invoice</div>
+                <div style="display: flex; justify-content: flex-end; gap: 16px; margin-bottom: 5px; font-size: 11px;">
+                    <span
+                        style="color: #94a3b8; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase;">INVOICE
+                        NO.</span>
+                    <span id="pdf-inv-number" style="font-weight: 600; color: #334155;">001/2018</span>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 16px; font-size: 11px;">
+                    <span
+                        style="color: #94a3b8; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase;">INVOICE
+                        DATE</span>
+                    <span id="pdf-inv-date" style="color: #475569;">January 1, 2026</span>
+                </div>
+                <div id="pdf-meta-contact-row"
+                    style="display: flex; justify-content: flex-end; gap: 16px; margin-top: 5px; font-size: 11px;">
+                    <span
+                        style="color: #0080FF; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase;">CONTACT
+                        US</span>
+                    <span id="pdf-meta-contact" style="color: #475569;">+386 989 271 3115</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Divider -->
+        <div style="height: 1px; background: #f1f5f9; margin-bottom: 28px;"></div>
+
+        <!-- Itemized Deliverables Table -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 35px;">
+            <thead>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <th
+                        style="text-align: left; font-size: 10px; font-weight: 600; color: #94a3b8; letter-spacing: 0.8px; text-transform: uppercase; padding: 8px 6px 14px;">
+                        TASK DESCRIPTION</th>
+                    <th
+                        style="text-align: center; font-size: 10px; font-weight: 600; color: #94a3b8; letter-spacing: 0.8px; text-transform: uppercase; padding: 8px 6px 14px; width: 80px;">
+                        HOURS</th>
+                    <th
+                        style="text-align: right; font-size: 10px; font-weight: 600; color: #94a3b8; letter-spacing: 0.8px; text-transform: uppercase; padding: 8px 6px 14px; width: 110px;">
+                        RATE</th>
+                    <th
+                        style="text-align: right; font-size: 10px; font-weight: 600; color: #94a3b8; letter-spacing: 0.8px; text-transform: uppercase; padding: 8px 6px 14px; width: 130px;">
+                        AMOUNT</th>
+                </tr>
+            </thead>
+            <tbody id="pdf-items-tbody">
+                <!-- Injected dynamically -->
+            </tbody>
+        </table>
+
+        <!-- Bottom Breakdown & Bank notes (Styled matching Image 1) -->
+        <div
+            style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px; padding-top: 20px;">
+            <!-- Left: Notes & Bank -->
+            <div style="max-width: 420px; font-size: 11px; line-height: 1.5; color: #64748b;">
+                <div id="pdf-notes" style="margin-bottom: 8px;">If you did not make this payment, please contact our
+                    billing support team</div>
+            </div>
+
+            <!-- Right: Summary Breakdown -->
+            <div style="min-width: 230px; font-size: 11px; text-align: right;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span
+                        style="color: #94a3b8; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">SUBTOTAL</span>
+                    <span id="pdf-subtotal" style="font-weight: 600; color: #334155;">1140,00 USD</span>
+                </div>
+                <div id="pdf-discount-row" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span id="pdf-discount-label"
+                        style="color: #94a3b8; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">DISCOUNT
+                        5%</span>
+                    <span id="pdf-discount-val" style="color: #64748b;">-57,00 USD</span>
+                </div>
+                <div id="pdf-tax-row" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span id="pdf-tax-label"
+                        style="color: #94a3b8; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">TAX
+                        (8%)</span>
+                    <span id="pdf-tax-val" style="color: #64748b;">0,00 USD</span>
+                </div>
+                <div style="height: 1px; background: #f1f5f9; margin: 8px 0 10px;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <span
+                        style="font-size: 13px; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px;">TOTAL</span>
+                    <span id="pdf-total" style="font-size: 21px; font-weight: 800; color: #0080FF;">1083,00 USD</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- JavaScript -->
+    <script src="./gate.js"></script>
+    <script src="./app.js"></script>
+    <script type="module"
+        src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925"
+        integrity="sha512-d9sL6GJLXn6fInD1+TVXhTcQOsmxeHfmHAvwGDIxp5TO+uo1fiWW7mHomMj4MLRlCsJDTqXzWLHJFFlPCEIj/A=="
+        data-cf-beacon='{"version":"2024.11.0","token":"65e19aff797e4a65a855c579a4b22037","r":1}'
+        crossorigin="anonymous"></script>
+</body>
+
+</html>
